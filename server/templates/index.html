@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP Address Manager & Ping Chart</title>
+<script src="{{ url_for('static', filename='chart.js') }}"></script>
+<script src="{{ url_for('static', filename='luxon.min.js') }}"></script>
+<script src="{{ url_for('static', filename='xlsx.full.min.js') }}"></script>
+
+
+    <style>
+        :root {
+            --primary-color: #4A90E2;
+            --primary-hover-color: #357ABD;
+            --secondary-color: #5C6BC0;
+            --background-color: #F8F9FA;
+            --card-background: #FFFFFF;
+            --text-color: #333333;
+            --light-text-color: #666666;
+            --border-color: #E0E0E0;
+            --danger-color: #E57373;
+            --danger-hover-color: #D32F2F;
+            --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.05);
+            --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: var(--card-background);
+            border-radius: 8px;
+            box-shadow: var(--shadow-medium);
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+            font-weight: 700;
+        }
+
+        /* --- Global Form Elements --- */
+        input[type="text"],
+        input[type="datetime-local"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            font-size: 1rem;
+            color: var(--text-color);
+            background-color: var(--card-background);
+            box-sizing: border-box; /* Ensures padding doesn't increase width */
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="datetime-local"]:focus,
+        select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+            outline: none;
+        }
+
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            font-weight: 500;
+            color: white;
+            background-color: var(--primary-color);
+        }
+
+        button:hover {
+            background-color: var(--primary-hover-color);
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background-color: var(--secondary-color);
+        }
+
+        button.secondary:hover {
+            background-color: #4854A0;
+        }
+
+        button.danger {
+            background-color: var(--danger-color);
+        }
+
+        button.danger:hover {
+            background-color: var(--danger-hover-color);
+        }
+
+        /* --- Header and Search --- */
+        .header-section {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 25px;
+            align-items: center;
+        }
+
+        .header-section #searchInput {
+            flex-grow: 1;
+            min-width: 200px;
+        }
+
+        .header-section .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .date-range-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            margin-top: 15px;
+            margin-bottom: 25px;
+        }
+
+        .date-range-controls label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+            color: var(--light-text-color);
+        }
+
+        .date-range-controls input {
+            flex-grow: 1;
+            min-width: 150px; /* Adjust as needed */
+        }
+
+        /* --- Add IP Section --- */
+        .add-ip-section {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: var(--background-color);
+            border-radius: 8px;
+            box-shadow: var(--shadow-light);
+        }
+
+        .add-ip-section input {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .add-ip-section button {
+            flex-shrink: 0;
+        }
+
+        /* --- IP List --- */
+        #ipList {
+            list-style: none;
+            padding: 0;
+            margin-bottom: 30px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .ip-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s ease;
+        }
+
+        .ip-item:hover {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+
+        .ip-item-details {
+            flex-grow: 1;
+            font-size: 1.1rem;
+        }
+
+        .ip-item-details strong {
+            color: var(--primary-color);
+        }
+
+        .ip-item-details span {
+            color: var(--light-text-color);
+            margin-left: 10px;
+        }
+
+        .ip-item-actions button {
+            margin-left: 10px;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+        }
+
+        /* --- Chart Controls --- */
+        #chartControls {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding-top: 20px; /* Separator from list */
+            border-top: 1px solid var(--border-color);
+        }
+
+        #chartControls label {
+            font-weight: 500;
+            color: var(--light-text-color);
+        }
+
+        #chartControls select {
+            width: auto; /* Override full width for select */
+            padding: 8px 10px;
+        }
+
+        /* --- Chart Container --- */
+        #chartContainer {
+            background-color: var(--card-background);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: var(--shadow-light);
+            min-height: 400px; /* Ensure chart has space */
+            display: flex; /* For centering or alignment if needed */
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- Edit Modal --- */
+        #editModal {
+            display: none; /* Hidden by default */
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        #editModal.show {
+            display: flex; /* Show when 'show' class is added by JS */
+        }
+
+        #editModal > div {
+            background: var(--card-background);
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: var(--shadow-medium);
+            text-align: center;
+            position: relative;
+        }
+
+        #editModal h3 {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        #editModal label {
+            text-align: left;
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--light-text-color);
+        }
+
+        #editModal input {
+            margin-bottom: 20px;
+        }
+
+        #editModal .button-group {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        /* --- Responsive Adjustments --- */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .header-section,
+            .date-range-controls,
+            .add-ip-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .header-section .button-group,
+            .add-ip-section button {
+                width: 100%;
+            }
+
+            .date-range-controls label {
+                width: 100%;
+                margin-bottom: 5px;
+            }
+
+            .ip-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .ip-item-actions {
+                width: 100%;
+                display: flex;
+                justify-content: flex-end;
+            }
+
+            .ip-item-actions button {
+                margin-left: 0;
+                margin-right: 10px; /* Space between buttons */
+            }
+
+            #chartControls {
+                flex-direction: column;
+                align-items: flex-end;
+            }
+        }
+    </style>
+</head>
+<body>
+
+
+<!-- For alerts -->
+<div id="notification" style="
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background-color: #323232;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 5px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 10001;
+  max-width: 300px;
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem;
+"></div>
+
+
+    <div class="container">
+        <h1>IP Address Manager with Unified Ping Chart</h1>
+
+<div class="header-section">
+  <div style="flex-grow:1; position: relative;">
+    <input type="text" id="searchInput" placeholder="Search devices by IP or name..." oninput="searchIPs()" autocomplete="off" />
+    <ul id="suggestionsList" style="
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      max-height: 150px;
+      overflow-y: auto;
+      width: 100%;
+      margin-top: 2px;
+      padding-left: 0;
+      list-style: none;
+      z-index: 10000;
+      display: none;
+    "></ul>
+  </div>
+  <div class="button-group">
+      <button id="exportImageBtn"> Export PNG</button>
+      <button id="exportExcelBtn"> Export Excel</button>
+  </div>
+</div>
+
+<!-- Delete Data -->
+<div style="margin-bottom: 15px;">
+  <label for="retentionSelect" style="font-weight: 600; margin-right: 10px;">Retention Duration:</label>
+  <select id="retentionSelect">
+    <option value="1">1 minute</option>
+    <option value="2">2 minutes</option>
+    <option value="3">3 minutes</option>
+    <option value="4">4 minutes</option>
+    <option value="5" selected>5 minutes</option>
+    <option value="6">6 minutes</option>
+    <option value="7">7 minutes</option>
+    <option value="8">8 minutes</option>
+    <option value="9">9 minutes</option>
+    <option value="10">10 minutes</option>
+    <option value="20">20 minutes</option>
+    <option value="30">30 minutes</option>
+    <option value="40">40 minutes</option>
+    <option value="50">50 minutes</option>
+    <option value="60">60 minutes</option>
+  </select>
+</div>
+
+
+<!-- Filter by date range: -->
+        <div class="date-range-controls">
+            <label for="startTime">
+                 Start:
+                <input type="datetime-local" id="startTime" />
+            </label>
+            <label for="endTime">
+                 End:
+                <input type="datetime-local" id="endTime" />
+            </label>
+            <button onclick="fetchUnifiedPingData()" class="secondary"> Load Chart</button>
+        </div>
+
+        <hr> <div class="add-ip-section">
+            <input type="text" id="ipInput" placeholder="Enter IP address (e.g., 192.168.1.1)" />
+            <input type="text" id="nameInput" placeholder="Enter device name (optional)" />
+            <button onclick="addIP()"> Add IP</button>
+        </div>
+
+        <!-- This is to show the locval time of the server, which is useful for debugging and understanding the time zone of the data. -->
+        <div id="localTime" style="text-align: right; font-weight: 500; color: var(--light-text-color); margin-bottom: 5px;"></div>
+
+        <h2>Registered Devices</h2>
+        <ul id="ipList"></ul>
+
+        <hr> <div id="chartControls">
+            <label for="sortDevices">Sort devices on chart by name:</label>
+            <select id="sortDevices" onchange="renderUnifiedChart()">
+                <option value="asc" selected>Ascending</option>
+                <option value="desc">Descending</option>
+            </select>
+        </div>
+
+        <div id="chartContainer">
+            <canvas id="unifiedPingChart"></canvas>
+        </div>
+
+        <div id="editModal">
+            <div>
+                <h3>Edit Device</h3>
+                <label for="modalIp">IP Address:</label>
+                <input type="text" id="modalIp" />
+                <label for="modalName">Device Name:</label>
+                <input type="text" id="modalName" />
+                <div class="button-group">
+                    <button id="saveBtn" class="secondary"> Save</button>
+                    <button id="cancelBtn" class="danger"> Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<!-- Load Chart.js -->
+
+<script>
+  const apiBase = 'http://localhost:5000/ips';
+  const unifiedPingApi = 'http://localhost:5000/ping-data';
+const editModal = document.getElementById('editModal');
+const modalIpInput = document.getElementById('modalIp');
+const modalNameInput = document.getElementById('modalName');
+const saveBtn = document.getElementById('saveBtn');
+const cancelBtn = document.getElementById('cancelBtn');
+
+let currentEditId = null;
+document.addEventListener('DOMContentLoaded', () => {
+  fetchUnifiedPingData();
+});
+
+function openEditModal(id, currentIp, currentName) {
+  currentEditId = id;
+  modalIpInput.value = currentIp;
+  modalNameInput.value = currentName || '';
+  editModal.style.display = 'flex';
+  modalIpInput.focus();
+}
+
+function closeEditModal() {
+  editModal.style.display = 'none';
+  currentEditId = null;
+}
+
+saveBtn.addEventListener('click', () => {
+  if (!currentEditId) return;
+  const newIp = modalIpInput.value.trim();
+  const newName = modalNameInput.value.trim();
+
+  if (!newIp) {
+    showNotification('IP address cannot be empty.');
+    return;
+  }
+
+  updateIP(currentEditId, newIp, newName);
+  closeEditModal();
+});
+
+cancelBtn.addEventListener('click', closeEditModal);
+
+
+  let devicesData = [];
+  let chartInstance = null;
+
+let allIPs = []; // store all IPs fetched
+let filteredIPIds = new Set();
+
+async function fetchIPs(searchTerm = '') {
+  let url = apiBase;
+  if (searchTerm) {
+    url += '?search=' + encodeURIComponent(searchTerm);
+  }
+  const res = await fetch(url);
+  const ips = await res.json();
+  console.log('Fetched IPs:', ips);
+  allIPs = ips;
+  filteredIPIds = new Set(allIPs.map(ip => ip.id));
+  renderIPList(allIPs);
+  await fetchUnifiedPingData();
+}
+const { DateTime } = luxon;
+
+function formatDatetimeLocalToISO(dtLocalStr) {
+  if (!dtLocalStr) return '';
+  const dt = luxon.DateTime.fromISO(dtLocalStr, { zone: 'local' });
+  return dt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+}
+
+
+// For the local time display, we use Luxon to get the current local time and format it nicely.
+function updateLocalTime() {
+  const now = luxon.DateTime.local();
+  const formatted = now.toLocaleString(luxon.DateTime.DATETIME_MED_WITH_SECONDS);
+  document.getElementById('localTime').textContent = `Local time: ${formatted}`;
+}
+
+// Update every second
+setInterval(updateLocalTime, 1000);
+// Initial call immediately
+updateLocalTime();
+
+
+function renderIPList(ips) {
+  const list = document.getElementById('ipList');
+  list.innerHTML = '';
+  ips.forEach(({ id, ip, name, client }) => {
+    const displayName = name?.trim() || ip;
+    const li = document.createElement('li');
+
+    const ipDiv = document.createElement('div');
+    ipDiv.className = 'ip-item';
+
+    const span = document.createElement('span');
+    // Add client name beside IP in parentheses or brackets
+    span.className = 'ip-text';
+    span.textContent = `${displayName} (${ip} | ${client})`;
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => openEditModal(id, ip, name);
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => deleteIP(id);
+
+    ipDiv.appendChild(span);
+    ipDiv.appendChild(editBtn);
+    ipDiv.appendChild(delBtn);
+
+    li.appendChild(ipDiv);
+    list.appendChild(li);
+  });
+}
+
+
+// For showing notifications
+function showNotification(message, duration = 3000) {
+  const notification = document.getElementById('notification');
+  notification.textContent = message;
+  notification.style.opacity = '1';
+  notification.style.pointerEvents = 'auto';
+
+  // Clear any existing timer
+  if (notification.hideTimeout) clearTimeout(notification.hideTimeout);
+
+  notification.hideTimeout = setTimeout(() => {
+    notification.style.opacity = '0';
+    notification.style.pointerEvents = 'none';
+  }, duration);
+}
+
+
+function filterIPs() {
+  const query = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (!query) {
+    renderIPList(allIPs);
+    return;
+  }
+  const filtered = allIPs.filter(({ name, ip }) => {
+    const deviceName = (name || ip).toLowerCase();
+    return deviceName.includes(query);
+  });
+  renderIPList(filtered);
+}
+const suggestionsList = document.getElementById('suggestionsList');
+
+function showSuggestions(matches) {
+  if (!matches.length) {
+    suggestionsList.style.display = 'none';
+    suggestionsList.innerHTML = '';
+    return;
+  }
+
+  suggestionsList.innerHTML = '';
+  matches.forEach(item => {
+    const li = document.createElement('li');
+    li.textContent = (item.name?.trim() || item.ip) + ` (${item.ip})`;
+    li.style.padding = '6px 10px';
+    li.style.cursor = 'pointer';
+    li.addEventListener('click', () => {
+      document.getElementById('searchInput').value = item.name?.trim() || item.ip;
+      suggestionsList.style.display = 'none';
+      fetchIPs(item.name?.trim() || item.ip);
+    });
+    li.addEventListener('mouseenter', () => {
+      li.style.backgroundColor = '#eee';
+    });
+    li.addEventListener('mouseleave', () => {
+      li.style.backgroundColor = '';
+    });
+    suggestionsList.appendChild(li);
+  });
+  suggestionsList.style.display = 'block';
+}
+
+async function searchIPs() {
+  const query = document.getElementById('searchInput').value.trim();
+  if (!query) {
+    suggestionsList.style.display = 'none';
+    fetchIPs();
+    return;
+  }
+
+  // Fetch all IPs with search query
+  const res = await fetch(apiBase + '?search=' + encodeURIComponent(query));
+  const ips = await res.json();
+
+  // Show popup with matches
+  showSuggestions(ips);
+
+  // Optionally filter the main list as well
+  renderIPList(ips);
+  // You can also fetch ping data for these IPs if you want immediate update
+}
+
+
+  async function addIP() {
+    const ipInput = document.getElementById('ipInput');
+    const nameInput = document.getElementById('nameInput');
+
+    const ip = ipInput.value.trim();
+    const name = nameInput.value.trim();
+
+    if (!ip) {
+      showNotification('Please enter an IP address');
+      return;
+    }
+
+    try {
+      const res = await fetch(apiBase, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, name }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        showNotification('Error: ' + (err.description || 'Could not add IP'));
+        return;
+      }
+      ipInput.value = '';
+      nameInput.value = '';
+      fetchIPs();
+    } catch (e) {
+      showNotification('Network error');
+    }
+  }
+
+// Update updateIP to accept name too
+async function updateIP(id, ip, name = '') {
+  try {
+    const res = await fetch(`${apiBase}/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip, name }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      showNotification('Error: ' + (err.description || 'Could not update IP'));
+      return;
+    }
+    fetchIPs();
+  } catch (e) {
+    showNotification('Network error');
+  }
+}
+
+
+  async function deleteIP(id) {
+    if (!confirm('Delete this IP?')) return;
+    try {
+      const res = await fetch(`${apiBase}/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchIPs();
+      } else {
+        showNotification('Could not delete IP');
+      }
+    } catch (e) {
+      showNotification('Network error');
+    }
+  }
+
+  // --- Unified Ping Chart Logic ---
+
+async function fetchUnifiedPingData() {
+  try {
+    // Read retention minutes
+    const retentionMinutes = parseInt(document.getElementById('retentionSelect').value, 10);
+
+    // Compute start time as now - retentionMinutes
+    const now = luxon.DateTime.local();
+    const startDT = now.minus({ minutes: retentionMinutes });
+    const startISO = startDT.toUTC().toISO();  // returns e.g. 2025-06-05T14:00:00.000Z
+
+    let end = document.getElementById('endTime').value;
+    // If end time is set by user, convert, else use now
+    let endISO = '';
+    if (end) {
+      endISO = formatDatetimeLocalToISO(end);
+    } else {
+      endISO = luxon.DateTime.local().toUTC().toISO();
+    }
+
+
+    let url = unifiedPingApi;
+    const params = [];
+
+    if (startISO) params.push('start=' + encodeURIComponent(startISO));
+    if (endISO) params.push('end=' + encodeURIComponent(endISO));
+    if (params.length) url += '?' + params.join('&');
+
+    console.log('Fetching ping data with URL:', url);
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      showNotification('Failed to load ping data');
+      return;
+    }
+    devicesData = await res.json();
+    console.log('Fetched ping data:', devicesData);
+    renderUnifiedChart();
+  } catch {
+    showNotification('Network error fetching ping data');
+  }
+}
+document.getElementById('retentionSelect').addEventListener('change', () => {
+  fetchUnifiedPingData();
+});
+
+
+function formatDatetimeLocalToISO(dtLocalStr) {
+  if (!dtLocalStr) return '';
+  const dt = luxon.DateTime.fromISO(dtLocalStr, { zone: 'local' });
+  return dt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+}
+
+  function getAllTimestamps(data) {
+    const tsSet = new Set();
+    data.forEach(device => {
+      device.pings.forEach(p => tsSet.add(p.timestamp));
+    });
+    return Array.from(tsSet).sort();
+  }
+
+  function buildDataset(device, timestamps) {
+    const latencyMap = new Map(device.pings.map(p => [p.timestamp, p.latency_ms]));
+    return timestamps.map(ts => latencyMap.get(ts) ?? null);
+  }
+
+  function randomColor(seed) {
+    let hash = 0;
+    for(let i=0; i<seed.length; i++) {
+      hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+    return '#' + '00000'.substring(0, 6 - c.length) + c;
+  }
+
+//This function renders the unified chart based on the current devicesData and filteredIPIds
+
+function renderUnifiedChart() {
+  if (chartInstance) {
+    chartInstance.destroy();
+  }
+
+  const sortOrder = document.getElementById('sortDevices').value;
+
+  // Filter devicesData to only devices in filteredIPIds
+  const filteredDevices = devicesData.filter(device => {
+    // We need to match the device to IP in allIPs by ip address, to get id
+    // Find matching IP in allIPs by ip address
+    const matchingIP = allIPs.find(ip => ip.ip === device.ip);
+    return matchingIP && filteredIPIds.has(matchingIP.id);
+  });
+
+  const sortedDevices = [...filteredDevices].sort((a,b) => {
+    if (a.device < b.device) return sortOrder === 'asc' ? -1 : 1;
+    if (a.device > b.device) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const timestamps = getAllTimestamps(sortedDevices);
+  const datasets = sortedDevices.map(device => ({
+    label: `${device.client} - ${device.device}`,  // use client - device name
+    data: buildDataset(device, timestamps),
+    borderColor: randomColor(device.device + device.ip),
+    fill: false,
+    spanGaps: true,
+    tension: 0.1,
+  }));
+
+  const ctx = document.getElementById('unifiedPingChart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: timestamps.map(ts => new Date(ts).toLocaleTimeString()),
+    datasets
+  },
+  options: {
+    responsive: true,
+    animation: false,  // Disable animations here
+    interaction: { mode: 'nearest', intersect: false },
+    plugins: { legend: { position: 'top' } },
+    scales: {
+      y: {
+        title: { display: true, text: 'Latency (ms)' },
+        beginAtZero: true
+      },
+      x: {
+        title: { display: true, text: 'Time' },
+        ticks: { maxRotation: 45, minRotation: 30 }
+      }
+    }
+  }
+});
+
+}
+
+document.getElementById('exportImageBtn').addEventListener('click', () => {
+  if (!chartInstance) {
+    showNotification('No chart available to export');
+    return;
+  }
+  const link = document.createElement('a');
+  link.href = chartInstance.toBase64Image();
+  link.download = 'ping-chart.png';
+  link.click();
+});
+
+document.getElementById('exportExcelBtn').addEventListener('click', () => {
+  if (!chartInstance) {
+    showNotification('No chart data available to export');
+    return;
+  }
+  
+  //Exporting to Excel requires the XLSX library
+  // Prepare data for Excel
+  const labels = chartInstance.data.labels; // timestamps
+  const datasets = chartInstance.data.datasets;
+
+  // Construct sheet data: header row + rows per timestamp
+  const sheetData = [];
+  const headerRow = ['Timestamp', ...datasets.map(ds => ds.label)];
+  sheetData.push(headerRow);
+
+  for (let i = 0; i < labels.length; i++) {
+    const row = [labels[i]];
+    datasets.forEach(ds => {
+      const val = ds.data[i];
+      row.push(val === null ? '' : val);
+    });
+    sheetData.push(row);
+  }
+
+  // Create workbook and worksheet
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(sheetData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Ping Data');
+
+  // Trigger download
+  XLSX.writeFile(wb, 'ping-data.xlsx');
+});
+
+
+  // Initial load
+  fetchIPs();
+  // Make sure modal is hidden on page load
+  closeEditModal();
+  setInterval(() => {
+  fetchUnifiedPingData();
+}, 5000);
+</script>
+
+</body>
+</html>
