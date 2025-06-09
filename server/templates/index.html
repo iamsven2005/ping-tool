@@ -444,21 +444,41 @@
         <!-- This is to show the locval time of the server, which is useful for debugging and understanding the time zone of the data. -->
         <div id="localTime" style="text-align: right; font-weight: 500; color: var(--light-text-color); margin-bottom: 5px;"></div>
 
-        <h2>Registered Devices</h2>
-        <ul id="ipList"></ul>
+                <button onclick="openDeviceListModal()" class="secondary" style="margin-bottom:20px;">Show Registered Devices</button>
 
-        <hr> <div id="chartControls">
-            <label for="sortDevices">Sort devices on chart by name:</label>
-            <select id="sortDevices" onchange="renderUnifiedChart()">
-                <option value="asc" selected>Ascending</option>
-                <option value="desc">Descending</option>
-            </select>
-        </div>
-
+        <hr> 
+        <div id="chartControls">
+    <label for="sortDevices">Sort devices on chart by name:</label>
+    <select id="sortDevices" onchange="renderUnifiedChart()">
+        <option value="asc" selected>Ascending</option>
+        <option value="desc">Descending</option>
+    </select>
+    <label for="refreshMode" style="margin-left:20px;">Refresh mode:</label>
+    <select id="refreshMode" style="margin-right:10px;">
+        <option value="auto" selected>Auto</option>
+        <option value="manual">Manual</option>
+    </select>
+    <label for="refreshIntervalInput" id="refreshIntervalLabel" style="display:inline; margin-right:5px;">Interval (sec):</label>
+    <input type="number" id="refreshIntervalInput" min="2" max="3600" value="5" style="width:60px; margin-right:10px;" />
+    <button id="manualRefreshBtn" style="display:none;">Refresh Chart</button>
+</div>
         <div id="chartContainer">
             <canvas id="unifiedPingChart"></canvas>
         </div>
-
+        <!-- Device List Modal -->
+<div id="deviceListModal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:20000; justify-content:center; align-items:center;">
+  <div style="background:white; border-radius:8px; max-width:600px; width:95vw; max-height:80vh; overflow:auto; padding:30px; position:relative;">
+    <button onclick="closeDeviceListModal()" style="position:absolute; top:10px; right:15px; font-size:1.2rem;">&times;</button>
+    <h2>Registered Devices</h2>
+    <ul id="modalIpList"></ul>
+    <div style="display:flex; justify-content:center; gap:10px; margin-top:20px;">
+      <button id="prevPageBtn" class="secondary">Prev</button>
+      <span id="pageInfo"></span>
+      <button id="nextPageBtn" class="secondary">Next</button>
+    </div>
+  </div>
+</div>
+        <!-- Device edit modal -->
         <div id="editModal">
             <div>
                 <h3>Edit Device</h3>
@@ -537,6 +557,7 @@ async function fetchIPs(searchTerm = '') {
   allIPs = ips;
   filteredIPIds = new Set(allIPs.map(ip => ip.id));
   renderIPList(allIPs);
+  renderPaginatedIPList(); // <-- add this line
   await fetchUnifiedPingData();
 }
 const { DateTime } = luxon;
@@ -818,6 +839,10 @@ function formatDatetimeLocalToISO(dtLocalStr) {
 
 //This function renders the unified chart based on the current devicesData and filteredIPIds
 
+let hiddenDeviceIds = new Set(); // Track hidden device ids (by ip or id as you prefer)
+
+// --- Unified Ping Chart Logic ---
+
 function renderUnifiedChart() {
   if (chartInstance) {
     chartInstance.destroy();
@@ -827,53 +852,78 @@ function renderUnifiedChart() {
 
   // Filter devicesData to only devices in filteredIPIds
   const filteredDevices = devicesData.filter(device => {
-    // We need to match the device to IP in allIPs by ip address, to get id
-    // Find matching IP in allIPs by ip address
     const matchingIP = allIPs.find(ip => ip.ip === device.ip);
     return matchingIP && filteredIPIds.has(matchingIP.id);
   });
 
-  const sortedDevices = [...filteredDevices].sort((a,b) => {
+  const sortedDevices = [...filteredDevices].sort((a, b) => {
     if (a.device < b.device) return sortOrder === 'asc' ? -1 : 1;
     if (a.device > b.device) return sortOrder === 'asc' ? 1 : -1;
     return 0;
   });
 
   const timestamps = getAllTimestamps(sortedDevices);
-  const datasets = sortedDevices.map(device => ({
-    label: `${device.client} - ${device.device}`,  // use client - device name
-    data: buildDataset(device, timestamps),
-    borderColor: randomColor(device.device + device.ip),
-    fill: false,
-    spanGaps: true,
-    tension: 0.1,
-  }));
+  const datasets = sortedDevices.map(device => {
+    // Use device.ip as unique key for hidden tracking
+    const isHidden = hiddenDeviceIds.has(device.ip);
+    return {
+      label: `${device.client} - ${device.device}`,
+      data: buildDataset(device, timestamps),
+      borderColor: randomColor(device.device + device.ip),
+      fill: false,
+      spanGaps: true,
+      tension: 0.1,
+      hidden: isHidden
+    };
+  });
 
   const ctx = document.getElementById('unifiedPingChart').getContext('2d');
   chartInstance = new Chart(ctx, {
-  type: 'line',
-  data: {
-    labels: timestamps.map(ts => new Date(ts).toLocaleTimeString()),
-    datasets
-  },
-  options: {
-    responsive: true,
-    animation: false,  // Disable animations here
-    interaction: { mode: 'nearest', intersect: false },
-    plugins: { legend: { position: 'top' } },
-    scales: {
-      y: {
-        title: { display: true, text: 'Latency (ms)' },
-        beginAtZero: true
+    type: 'line',
+    data: {
+      labels: timestamps.map(ts => new Date(ts).toLocaleTimeString()),
+      datasets
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      interaction: { mode: 'nearest', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          onClick: function (e, legendItem, legend) {
+            // Find the dataset index
+            const index = legendItem.datasetIndex;
+            const ds = legend.chart.data.datasets[index];
+            // Find the device by label (or better, by ip)
+            // We use device.ip as unique key
+            const deviceLabel = ds.label;
+            // Find the device ip from datasets
+            const device = sortedDevices[index];
+            if (!device) return;
+            if (hiddenDeviceIds.has(device.ip)) {
+              hiddenDeviceIds.delete(device.ip);
+            } else {
+              hiddenDeviceIds.add(device.ip);
+            }
+            // Toggle hidden state and update chart
+            legend.chart.data.datasets[index].hidden = hiddenDeviceIds.has(device.ip);
+            legend.chart.update();
+          }
+        }
       },
-      x: {
-        title: { display: true, text: 'Time' },
-        ticks: { maxRotation: 45, minRotation: 30 }
+      scales: {
+        y: {
+          title: { display: true, text: 'Latency (ms)' },
+          beginAtZero: true
+        },
+        x: {
+          title: { display: true, text: 'Time' },
+          ticks: { maxRotation: 45, minRotation: 30 }
+        }
       }
     }
-  }
-});
-
+  });
 }
 
 document.getElementById('exportImageBtn').addEventListener('click', () => {
@@ -886,6 +936,81 @@ document.getElementById('exportImageBtn').addEventListener('click', () => {
   link.download = 'ping-chart.png';
   link.click();
 });
+
+// Pagination state for device modal
+let currentPage = 1;
+const pageSize = 10;
+let paginatedIPs = [];
+
+function openDeviceListModal() {
+  currentPage = 1;
+  renderPaginatedIPList();
+  document.getElementById('deviceListModal').style.display = 'flex';
+}
+
+function closeDeviceListModal() {
+  document.getElementById('deviceListModal').style.display = 'none';
+}
+
+// Render paginated device list in modal
+function renderPaginatedIPList() {
+  const list = document.getElementById('modalIpList');
+  paginatedIPs = allIPs;
+  const totalPages = Math.ceil(paginatedIPs.length / pageSize);
+  const startIdx = (currentPage - 1) * pageSize;
+  const endIdx = startIdx + pageSize;
+  const pageItems = paginatedIPs.slice(startIdx, endIdx);
+
+  list.innerHTML = '';
+  pageItems.forEach(({ id, ip, name, client }) => {
+    const displayName = name?.trim() || ip;
+    const li = document.createElement('li');
+    li.style.marginBottom = '10px';
+
+    const ipDiv = document.createElement('div');
+    ipDiv.className = 'ip-item';
+
+    const span = document.createElement('span');
+    span.className = 'ip-text';
+    span.textContent = `${displayName} (${ip} | ${client})`;
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => openEditModal(id, ip, name);
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => deleteIP(id);
+
+    ipDiv.appendChild(span);
+    ipDiv.appendChild(editBtn);
+    ipDiv.appendChild(delBtn);
+
+    li.appendChild(ipDiv);
+    list.appendChild(li);
+  });
+
+  // Update page info
+  document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages || 1}`;
+  document.getElementById('prevPageBtn').disabled = currentPage === 1;
+  document.getElementById('nextPageBtn').disabled = currentPage === totalPages || totalPages === 0;
+}
+
+// Pagination button handlers
+document.getElementById('prevPageBtn').onclick = function() {
+  if (currentPage > 1) {
+    currentPage--;
+    renderPaginatedIPList();
+  }
+};
+document.getElementById('nextPageBtn').onclick = function() {
+  const totalPages = Math.ceil(allIPs.length / pageSize);
+  if (currentPage < totalPages) {
+    currentPage++;
+    renderPaginatedIPList();
+  }
+};
+
 
 document.getElementById('exportExcelBtn').addEventListener('click', () => {
   if (!chartInstance) {
@@ -920,15 +1045,54 @@ document.getElementById('exportExcelBtn').addEventListener('click', () => {
   // Trigger download
   XLSX.writeFile(wb, 'ping-data.xlsx');
 });
+let refreshInterval = null;
 
+function setRefreshMode() {
+  const mode = document.getElementById('refreshMode').value;
+  const manualBtn = document.getElementById('manualRefreshBtn');
+  const intervalInput = document.getElementById('refreshIntervalInput');
+  const intervalLabel = document.getElementById('refreshIntervalLabel');
+  if (mode === 'manual') {
+    manualBtn.style.display = '';
+    intervalInput.style.display = 'none';
+    intervalLabel.style.display = 'none';
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+      refreshInterval = null;
+    }
+  } else {
+    manualBtn.style.display = 'none';
+    intervalInput.style.display = '';
+    intervalLabel.style.display = '';
+    setAutoRefresh();
+  }
+}
 
-  // Initial load
-  fetchIPs();
-  // Make sure modal is hidden on page load
-  closeEditModal();
-  setInterval(() => {
-  fetchUnifiedPingData();
-}, 5000);
+function setAutoRefresh() {
+  const intervalInput = document.getElementById('refreshIntervalInput');
+  let interval = parseInt(intervalInput.value, 10);
+  if (isNaN(interval) || interval < 2) interval = 5;
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
+  refreshInterval = setInterval(() => {
+    fetchUnifiedPingData();
+  }, interval * 1000);
+}
+
+document.getElementById('refreshMode').addEventListener('change', setRefreshMode);
+document.getElementById('manualRefreshBtn').addEventListener('click', fetchUnifiedPingData);
+document.getElementById('refreshIntervalInput').addEventListener('change', function() {
+  if (document.getElementById('refreshMode').value === 'auto') {
+    setAutoRefresh();
+  }
+});
+
+// Initial load
+fetchIPs();
+closeEditModal();
+setRefreshMode();
 </script>
 
 </body>
